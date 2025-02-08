@@ -1,6 +1,12 @@
-﻿@{
+﻿@inject IHttpContextAccessor contxt;
+
+@{
     ViewData["Title"] = "Privacy Policy";
+
 }
 <h1>@ViewData["Title"]</h1>
-
+<ul>
+    <li> Student id: @contxt.HttpContext.Session.GetString("StudentName")</li>
+    <li> Student Name: @contxt.HttpContext.Session.GetInt32("StudentId")</li>
+</ul>
 <p>Use this page to detail your site's privacy policy.</p>

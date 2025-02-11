@@ -1,31 +1,46 @@
 using System.Diagnostics;
 using AS_Assignment2.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AS_Assignment2.Controllers
 {
     public class HomeController : Controller
     {
-        private readonly IHttpContextAccessor contxt;
+        private readonly IHttpContextAccessor _contxt;
         private readonly ILogger<HomeController> _logger;
+        private readonly UserManager<UserClass> _userManager;
 
-        public HomeController(ILogger<HomeController> logger, IHttpContextAccessor httpContextAccessor)
+        // Add UserManager to constructor
+        public HomeController(
+            ILogger<HomeController> logger,
+            IHttpContextAccessor httpContextAccessor,
+            UserManager<UserClass> userManager)
         {
             _logger = logger;
-            contxt = httpContextAccessor;
+            _contxt = httpContextAccessor;
+            _userManager = userManager;
         }
 
-        public IActionResult Index()
+        [Authorize]
+        public async Task<IActionResult> Index()
         {
-            contxt.HttpContext.Session.SetString("StudentName", "Tim");
-            contxt.HttpContext.Session.SetInt32("StudentId", 50);
-            return View();
+            // Get the current user
+            var user = await _userManager.GetUserAsync(User);
+
+            // Set session values using actual user data
+            _contxt.HttpContext.Session.SetString("StudentName", $"{user.FirstName} {user.LastName}");
+            _contxt.HttpContext.Session.SetString("StudentId", user.Id);
+
+            return View(user);
         }
 
         public IActionResult Privacy()
         {
-            string StudentName = contxt.HttpContext.Session.GetString("StudentName");
+            string studentName = _contxt.HttpContext.Session.GetString("StudentName");
+            // You might want to actually use the studentName variable
             return View();
         }
 

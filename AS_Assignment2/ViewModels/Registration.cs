@@ -1,56 +1,86 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 
-namespace AS_Assignment2.ViewModels
+public class RegisterViewModel
 {
-    public class Register
+    [Required]
+    [Display(Name = "First Name")]
+    public string FirstName { get; set; }
+
+    [Required]
+    [Display(Name = "Last Name")]
+    public string LastName { get; set; }
+
+    [Required]
+    [MaxLength(500)]
+    [DataType(DataType.CreditCard)]
+    [Display(Name = "Credit Card Number")]
+    [RegularExpression(@"^[0-9]{13,16}$|^([0-9]{4}-){3}[0-9]{4}$", ErrorMessage = "Credit card number must be between 13 and 16 digits and may include dashes.")]
+
+    public string CreditCardNo { get; set; }
+
+    [Required]
+    [Phone]
+    [Display(Name = "Mobile Number")]
+    [RegularExpression(@"^[0-9]{8,}$", ErrorMessage = "Invalid phone number")]
+    public string MobileNo { get; set; }
+
+    [Required]
+    [Display(Name = "Billing Address")]
+    public string BillingAddress { get; set; }
+
+    [Required]
+    [Display(Name = "Shipping Address")]
+    public string ShippingAddress { get; set; }
+
+    [Required]
+    [EmailAddress]
+    [Remote(action: "VerifyEmail", controller: "Account", ErrorMessage = "Email is already in use.")]
+    public string Email { get; set; }
+
+    [Required]
+    [DataType(DataType.Password)]
+    [RegularExpression(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\da-zA-Z]).{12,}$",
+        ErrorMessage = "Password must be at least 12 characters with uppercase, lowercase, number, and special character")]
+    public string Password { get; set; }
+
+    [DataType(DataType.Password)]
+    [Display(Name = "Confirm Password")]
+    [Compare("Password", ErrorMessage = "Passwords do not match")]
+    public string ConfirmPassword { get; set; }
+
+    [DataType(DataType.Upload)]
+    [AllowedExtensions(new[] { ".jpg", ".jpeg" }, ErrorMessage = "Only JPG files are allowed")]
+    public IFormFile? Photo { get; set; }
+}
+
+// Attributes/AllowedExtensionsAttribute.cs
+public class AllowedExtensionsAttribute : ValidationAttribute
+{
+    private readonly string[] _extensions;
+
+    public AllowedExtensionsAttribute(string[] extensions)
     {
-        public int Id { get; set; }
+        _extensions = extensions;
+    }
 
-        [Required]
-        [DataType(DataType.Text)]
-        [StringLength(50, ErrorMessage = "First name cannot be longer than 50 characters.")]
-        public string FirstName { get; set; }
+    protected override ValidationResult IsValid(
+        object value, ValidationContext validationContext)
+    {
+        if (value is IFormFile file)
+        {
+            var extension = Path.GetExtension(file.FileName);
+            if (!_extensions.Contains(extension.ToLower()))
+            {
+                return new ValidationResult(GetErrorMessage());
+            }
+        }
+        return ValidationResult.Success;
+    }
 
-        [Required]
-        [DataType(DataType.Text)]
-        [StringLength(50, ErrorMessage = "Last name cannot be longer than 50 characters.")]
-        public string LastName { get; set; }
-
-        [Required]
-        [DataType(DataType.Text)]
-        [RegularExpression(@"^\d{16}$", ErrorMessage = "Credit card number must be 16 digits.")]
-        public string CreditCardNo { get; set; }
-
-        [Required]
-        [DataType(DataType.PhoneNumber)]
-        [RegularExpression(@"^\+?[1-9]\d{1,14}$", ErrorMessage = "Invalid phone number format.")]
-        public string MobileNo { get; set; }
-
-        [Required]
-        [DataType(DataType.Text)]
-        public string BillingAddress { get; set; }
-
-        [Required]
-        [DataType(DataType.Text)]
-        public string ShippingAddress { get; set; }
-
-        [DataType(DataType.Upload)]
-        [FileExtensions(Extensions = "jpg,jpeg", ErrorMessage = "Please upload a file with .jpg or .jpeg extension.")]
-        public IFormFile Photo { get; set; }
-
-        [Required]
-        [DataType(DataType.EmailAddress)]
-        [EmailAddress(ErrorMessage = "Invalid email address format.")]
-        public string Email { get; set; }
-
-        [Required]
-        [DataType(DataType.Password)]
-        [StringLength(100, MinimumLength = 12, ErrorMessage = "Password must be at least 12 characters long.")]
-        public string Password { get; set; }
-
-        [Required]
-        [DataType(DataType.Password)]
-        [Compare(nameof(Password), ErrorMessage = "Password and confirmation password do not match.")]
-        public string ConfirmPassword { get; set; }
+    public string GetErrorMessage()
+    {
+        return $"Allowed file extensions: {string.Join(", ", _extensions)}";
     }
 }

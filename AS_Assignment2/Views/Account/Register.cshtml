@@ -1,0 +1,144 @@
+﻿@model RegisterViewModel
+
+@{
+    ViewData["Title"] = "Register";
+}
+
+<h2>Register</h2>
+
+<form asp-action="Register" method="post" enctype="multipart/form-data">
+    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
+    <div class="form-group">
+        <label asp-for="FirstName" class="control-label"></label>
+        <input asp-for="FirstName" class="form-control" />
+        <span asp-validation-for="FirstName" class="text-danger"></span>
+    </div>
+
+    <div class="form-group">
+        <label asp-for="LastName" class="control-label"></label>
+        <input asp-for="LastName" class="form-control" />
+        <span asp-validation-for="LastName" class="text-danger"></span>
+    </div>
+
+    <div class="form-group">
+        <label asp-for="CreditCardNo" class="control-label"></label>
+        <input asp-for="CreditCardNo" class="form-control" />
+        <span asp-validation-for="CreditCardNo" class="text-danger"></span>
+    </div>
+
+    <div class="form-group">
+        <label asp-for="MobileNo" class="control-label"></label>
+        <input asp-for="MobileNo" class="form-control" />
+        <span asp-validation-for="MobileNo" class="text-danger"></span>
+    </div>
+
+    <div class="form-group">
+        <label asp-for="BillingAddress" class="control-label"></label>
+        <input asp-for="BillingAddress" class="form-control" />
+        <span asp-validation-for="BillingAddress" class="text-danger"></span>
+    </div>
+
+    <div class="form-group">
+        <label asp-for="ShippingAddress" class="control-label"></label>
+        <input asp-for="ShippingAddress" class="form-control" />
+        <span asp-validation-for="ShippingAddress" class="text-danger"></span>
+    </div>
+
+    <div class="form-group">
+        <label asp-for="Email" class="control-label"></label>
+        <input asp-for="Email" class="form-control" />
+        <span asp-validation-for="Email" class="text-danger"></span>
+    </div>
+
+    <div class="form-group">
+        <label asp-for="Password" class="control-label"></label>
+        <input asp-for="Password" class="form-control" id="password" />
+        <div class="password-strength-meter">
+            <div class="progress" style="height: 5px;">
+                <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+            </div>
+            <small class="password-strength-text"></small>
+        </div>
+        <span asp-validation-for="Password" class="text-danger"></span>
+    </div>
+
+    <!-- Include jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+    <script>
+        $(document).ready(function () {
+            $('#password').on('input', function () {
+                const password = $(this).val();
+                const strength = calculatePasswordStrength(password);
+                updateStrengthMeter(strength);
+            });
+
+            function calculatePasswordStrength(password) {
+                let strength = 0;
+
+                if (password.length >= 12) strength++;
+                if (/[A-Z]/.test(password)) strength++;
+                if (/[a-z]/.test(password)) strength++;
+                if (/[0-9]/.test(password)) strength++;
+                if (/[^A-Za-z0-9]/.test(password)) strength++;
+
+                return Math.min(4, strength); // Max 4 criteria
+            }
+
+            function updateStrengthMeter(strength) {
+                const $meter = $('.progress-bar');
+                const $text = $('.password-strength-text');
+                const percentages = ['0%', '25%', '50%', '75%', '100%'];
+                const colors = ['danger', 'danger', 'warning', 'success', 'success'];
+                const texts = ['Very Weak', 'Weak', 'Medium', 'Strong', 'Very Strong'];
+
+                $meter.css('width', percentages[strength])
+                    .removeClass('bg-danger bg-warning bg-success')
+                    .addClass('bg-' + colors[strength]);
+
+                $text.text(texts[strength]).css('color', $meter.css('background-color'));
+            }
+        });
+    </script>
+
+    <style>
+        .password-strength-meter {
+            margin-top: 5px;
+        }
+
+        .password-strength-text {
+            display: block;
+            margin-top: 2px;
+            font-size: 0.9em;
+        }
+    </style>
+
+    <div class="form-group">
+        <label asp-for="ConfirmPassword" class="control-label"></label>
+        <input asp-for="ConfirmPassword" class="form-control" />
+        <span asp-validation-for="ConfirmPassword" class="text-danger"></span>
+    </div>
+
+    <div class="form-group">
+        <label asp-for="Photo" class="control-label"></label>
+        <input asp-for="Photo" type="file" class="form-control" />
+        <span asp-validation-for="Photo" class="text-danger"></span>
+    </div>
+
+    <div class="form-group">
+        <input type="submit" value="Register" class="btn btn-primary" />
+    </div>
+</form>
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/5.0.6/jquery.inputmask.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            $('#MobileNo').inputmask('99999999');
+        });
+    </script>
+}

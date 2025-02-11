@@ -1,0 +1,75 @@
+﻿@model AS_Assignment2.ViewModels.Login
+@{
+    ViewData["Title"] = "Login";
+}
+
+<h2>Login</h2>
+
+<form asp-action="Login" method="post">
+    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
+    <div class="form-group">
+        <label asp-for="Email" class="control-label"></label>
+        <input asp-for="Email" class="form-control" />
+        <span asp-validation-for="Email" class="text-danger"></span>
+    </div>
+
+    <div class="form-group">
+        <label asp-for="Password" class="control-label"></label>
+        <input asp-for="Password" class="form-control" />
+        <span asp-validation-for="Password" class="text-danger"></span>
+    </div>
+
+    <div class="form-group">
+        <button type="submit" class="btn btn-primary">Login</button>
+    </div>
+
+    <div class="form-group">
+        <p>
+            <a asp-action="Register">Register as a new user</a>
+        </p>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const passwordField = document.getElementById('Password');
+            const validationMessage = document.querySelector('[data-valmsg-for="Password"]');
+
+            if (passwordField && validationMessage) {
+                passwordField.addEventListener('input', function () {
+                    const password = this.value;
+                    const requirements = {
+                        length: password.length >= 12,
+                        upper: /[A-Z]/.test(password),
+                        lower: /[a-z]/.test(password),
+                        number: /\d/.test(password),
+                        special: /[^\da-zA-Z]/.test(password)
+                    };
+
+                    const allValid = Object.values(requirements).every(v => v);
+
+                    if (!allValid) {
+                        validationMessage.innerHTML = `
+                                    <div class="alert alert-sm alert-warning mt-2">
+                                        Password must contain:
+                                        <ul class="mb-0">
+                                            <li>${requirements.length ? '✔' : '❌'} At least 12 characters</li>
+                                            <li>${requirements.upper ? '✔' : '❌'} 1 uppercase letter</li>
+                                            <li>${requirements.lower ? '✔' : '❌'} 1 lowercase letter</li>
+                                            <li>${requirements.number ? '✔' : '❌'} 1 number</li>
+                                            <li>${requirements.special ? '✔' : '❌'} 1 special character</li>
+                                        </ul>
+                                    </div>
+                                `;
+                    } else {
+                        validationMessage.innerHTML = '';
+                    }
+                });
+            }
+        });
+    </script>
+}

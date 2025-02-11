@@ -4,10 +4,21 @@
     ViewData["Title"] = "Home Page";
 }
 
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <ul>
-        <li> Student id: @contxt.HttpContext.Session.GetString("StudentName")</li>
-        <li> Student Name: @contxt.HttpContext.Session.GetInt32("StudentId")</li>
-    </ul>
-</div>
+@if (User.Identity.IsAuthenticated)
+{
+    <div class="alert alert-success">
+        <h4>Welcome @Model.FirstName @Model.LastName!</h4>
+        <p>Email: @Model.Email</p>
+        <p>Last login: @DateTime.Now.ToString()</p>
+    </div>
+
+    <form asp-controller="Account" asp-action="Logout" method="post">
+        <button type="submit" class="btn btn-danger">Logout</button>
+    </form>
+}
+else
+{
+    <div class="alert alert-info">
+        Please login to access the system
+    </div>
+}

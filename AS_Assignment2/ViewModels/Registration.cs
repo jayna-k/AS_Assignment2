@@ -42,7 +42,7 @@ public class RegisterViewModel
     [Required]
     [DataType(DataType.Password)]
     [RegularExpression(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\da-zA-Z]).{12,}$",
-        ErrorMessage = "Password must be at least 12 characters with uppercase, lowercase, number, and special character")]
+        ErrorMessage = "Password must be at least 12 characters with uppercase, lowercase, number, and special character")] 
     public string Password { get; set; }
 
     [DataType(DataType.Password)]

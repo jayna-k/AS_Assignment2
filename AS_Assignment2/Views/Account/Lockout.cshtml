@@ -1,0 +1,38 @@
+﻿@model AS_Assignment2.Views.Account.LockoutModel
+@{
+    ViewData["Title"] = "Account Locked";
+}
+
+<div class="container">
+    <div class="alert alert-danger mt-5">
+        <h2 class="alert-heading">Account Temporarily Locked</h2>
+        <hr>
+        <p class="mb-0">
+            Your account has been locked due to multiple failed login attempts.
+            Please try again in <span id="countdown">@ViewData["LockoutDuration"]</span> seconds.
+        </p>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        // Auto-redirect functionality
+        const lockoutDuration = @ViewData["LockoutMilliseconds"];
+        let seconds = parseInt(document.getElementById('countdown').textContent);
+
+        const countdownInterval = setInterval(() => {
+            seconds--;
+            document.getElementById('countdown').textContent = seconds;
+
+            if (seconds <= 0) {
+                clearInterval(countdownInterval);
+                window.location.href = '@Url.Action("Login", "Account")';
+            }
+        }, 1000);
+
+        // Force redirect even if user tries to stay on page
+        setTimeout(() => {
+            window.location.href = '@Url.Action("Login", "Account")';
+        }, lockoutDuration);
+    </script>
+}

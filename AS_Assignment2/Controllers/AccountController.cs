@@ -18,7 +18,7 @@ public class AccountController : Controller
 
     private readonly AuthDbContext _context;
     private const int MaxFailedAttempts = 3;
-    private readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(5);
+    private readonly TimeSpan LockoutDuration = TimeSpan.FromSeconds(30);
 
 
     public AccountController(
@@ -97,6 +97,18 @@ public class AccountController : Controller
                 {
                     ModelState.AddModelError(string.Empty, error.Description);
                 }
+
+                if (result.Succeeded)
+                {
+                    // Audit log
+                    _context.AuditLogs.Add(new AuditLog
+                    {
+                        UserId = user.Id,
+                        Action = "Registration",
+                        Details = "New user registered"
+                    });
+                    await _context.SaveChangesAsync();
+                }
             }
 
             return View(model);
@@ -154,6 +166,14 @@ public class AccountController : Controller
 
                 if (user != null)
                 {
+                    // Track login attempt
+                    _context.LoginAttempts.Add(new LoginAttempt
+                    {
+                        UserId = user.Id,
+                        AttemptTime = DateTime.UtcNow,
+                        IsSuccessful = false,
+                        IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString()
+                    });
 
                     var result = await _signInManager.PasswordSignInAsync(
                         user.UserName,
@@ -163,16 +183,37 @@ public class AccountController : Controller
 
                     if (result.Succeeded)
                     {
+                        // Update attempt to successful
+                        var attempt = _context.LoginAttempts.Local.Last();
+                        attempt.IsSuccessful = true;
+
+                        // Add audit log
+                        _context.AuditLogs.Add(new AuditLog
+                        {
+                            UserId = user.Id,
+                            Action = "Login",
+                            Details = "Successful login"
+                        });
+                        await _context.SaveChangesAsync();
+
+
                         _logger.LogInformation("User {Email} logged in", model.Email);
                         return RedirectToAction("Index", "Home");
                     }
-                    if (result.RequiresTwoFactor)
+                    else if (result.RequiresTwoFactor)
                     {
                         // Implement 2FA if needed
                         return RedirectToPage("./LoginWith2fa");
                     }
-                    if (result.IsLockedOut)
+                    else if (result.IsLockedOut)
                     {
+                        _context.AuditLogs.Add(new AuditLog
+                        {
+                            UserId = user.Id,
+                            Action = "Account Locked",
+                            Details = "Account locked due to multiple failed attempts"
+                        });
+                        await _context.SaveChangesAsync();
                         _logger.LogWarning("User {Email} locked out", model.Email);
                         return RedirectToAction("Lockout");
                     }
@@ -196,9 +237,32 @@ public class AccountController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Logout()
     {
+        var user = await _userManager.GetUserAsync(User);
+        if (user != null)
+        {
+            _context.AuditLogs.Add(new AuditLog
+            {
+                UserId = user.Id,
+                Action = "Logout",
+                Details = "User logged out"
+            });
+            await _context.SaveChangesAsync();
+        }
+
         await _signInManager.SignOutAsync();
         HttpContext.Session.Clear();
         _logger.LogInformation("User logged out");
         return RedirectToAction("Login");
-    }   
+    }
+
+
+    [HttpGet]
+    [AllowAnonymous]
+    public IActionResult Lockout()
+    {
+        ViewData["LockoutDuration"] = (int)LockoutDuration.TotalSeconds;
+        ViewData["LockoutMilliseconds"] = (int)LockoutDuration.TotalMilliseconds;
+        return View();
+    }
+
 }

@@ -2,10 +2,12 @@
 @{
     ViewData["Title"] = "Login";
 }
+@inject IConfiguration Configuration
+
 
 <h2>Login</h2>
 
-<form asp-action="Login" method="post">
+<form asp-action="Login" method="post" id="loginForm">
     <div asp-validation-summary="ModelOnly" class="text-danger"></div>
 
     <div class="form-group">
@@ -20,17 +22,41 @@
         <span asp-validation-for="Password" class="text-danger"></span>
     </div>
 
+    <input type="hidden" asp-for="RecaptchaToken" id="RecaptchaToken" />
+
     <div class="form-group">
-        <button type="submit" class="btn btn-primary">Login</button>
+        <button type="submit" class="btn btn-primary" id="loginButton">
+            Login
+        </button>
     </div>
+
 
     <div class="form-group">
         <p>
             <a asp-action="Register">Register as a new user</a>
         </p>
     </div>
+
 </form>
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
+    <script src="https://www.google.com/recaptcha/api.js?render=@Configuration["Recaptcha:SiteKey"]"></script>
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            grecaptcha.ready(() => {
+                grecaptcha.execute('@Configuration["Recaptcha:SiteKey"]', {
+                    action: 'login'
+                }).then(token => {
+                    console.log('reCAPTCHA token:', token);
+                    document.getElementById("RecaptchaToken").value = token;
+                    this.submit();
+                }).catch(error => {
+                    console.error('reCAPTCHA error:', error);
+                    alert('Security check failed. Please try again.');
+                });
+            });
+        });
+    </script>
 }

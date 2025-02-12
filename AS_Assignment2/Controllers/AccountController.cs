@@ -8,6 +8,9 @@ using Microsoft.AspNetCore.Authorization;
 using static AS_Assignment2.Services.AesEncryption;
 using Microsoft.Extensions.Logging;
 using AS_Assignment2.ViewModels;
+using Microsoft.EntityFrameworkCore;
+using System.Text.Json.Serialization;
+using System.Text.Json;
 
 public class AccountController : Controller
 {
@@ -15,6 +18,8 @@ public class AccountController : Controller
     private readonly SignInManager<UserClass> _signInManager;
     private readonly IEncryptionService _encryptionService;
     private readonly ILogger<AccountController> _logger;
+    private readonly IConfiguration _configuration;
+
 
     private readonly AuthDbContext _context;
     private const int MaxFailedAttempts = 3;
@@ -25,6 +30,7 @@ public class AccountController : Controller
     UserManager<UserClass> userManager,
     SignInManager<UserClass> signInManager,
     IEncryptionService encryptionService,
+    IConfiguration configuration,
     ILogger<AccountController> logger,
         AuthDbContext context)
     {
@@ -32,11 +38,13 @@ public class AccountController : Controller
             _userManager = userManager;
             _signInManager = signInManager;
             _encryptionService = encryptionService;
+            _configuration = configuration;
             _logger = logger;
             _context = context;
 
         }
     }
+
 
     [HttpGet]
     [AllowAnonymous]
@@ -162,6 +170,16 @@ public class AccountController : Controller
         {
             if (ModelState.IsValid)
             {
+                // Verify reCAPTCHA first
+                var recaptchaValid = await ValidateCaptcha(model.RecaptchaToken);
+                if (!recaptchaValid)
+                {
+                    ModelState.AddModelError(string.Empty, "Security verification failed");
+                    return View(model);
+                }
+
+                HttpContext.Session.Clear();
+
                 var user = await _userManager.FindByEmailAsync(model.Email);
 
                 if (user != null)
@@ -187,6 +205,29 @@ public class AccountController : Controller
                         var attempt = _context.LoginAttempts.Local.Last();
                         attempt.IsSuccessful = true;
 
+                        // Terminate existing sessions
+                         var activeSessions = await _context.Sessions
+                        .Where(s => s.UserId == user.Id && s.EndTime == null)
+                        .ToListAsync();
+
+                    foreach (var session in activeSessions)
+                    {
+                        session.EndTime = DateTime.UtcNow;
+                    }
+
+                    // Create new session
+                    var newSession = new Session
+                    {
+                        UserId = user.Id,
+                        StartTime = DateTime.UtcNow,
+                        SessionToken = Guid.NewGuid().ToString()
+                    };
+
+                    _context.Sessions.Add(newSession);
+                    await _context.SaveChangesAsync();
+
+                    HttpContext.Session.SetString("SessionToken", newSession.SessionToken);
+
                         // Add audit log
                         _context.AuditLogs.Add(new AuditLog
                         {
@@ -196,7 +237,7 @@ public class AccountController : Controller
                         });
                         await _context.SaveChangesAsync();
 
-
+                        HttpContext.Session.SetString("SessionToken", newSession.SessionToken);
                         _logger.LogInformation("User {Email} logged in", model.Email);
                         return RedirectToAction("Index", "Home");
                     }
@@ -233,26 +274,87 @@ public class AccountController : Controller
         }
     }
 
+
+    private async Task<bool> ValidateCaptcha(string token)
+    {
+        if (string.IsNullOrEmpty(token))
+        {
+            _logger.LogWarning("Empty reCAPTCHA token");
+            return false;
+        }
+
+        try
+        {
+            using var client = new HttpClient();
+            var secret = _configuration["Recaptcha:SecretKey"];
+            var minScore = _configuration.GetValue<double>("Recaptcha:MinScore", 0.5);
+
+            var response = await client.PostAsync(
+                $"https://www.google.com/recaptcha/api/siteverify?secret={secret}&response={token}",
+                null
+            );
+
+            var responseString = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<RecaptchaResponse>(responseString);
+
+            _logger.LogInformation("reCAPTCHA validation result: {Success} Score: {Score} Action: {Action}",
+                result.Success, result.Score, result.Action);
+
+            return result.Success &&
+                   result.Action == "login" &&
+                   result.Score >= minScore;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "reCAPTCHA validation error");
+            return false;
+        }
+    }
+
+
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Logout()
     {
-        var user = await _userManager.GetUserAsync(User);
-        if (user != null)
+        try
         {
-            _context.AuditLogs.Add(new AuditLog
+            var user = await _userManager.GetUserAsync(User);
+            if (user != null)
             {
-                UserId = user.Id,
-                Action = "Logout",
-                Details = "User logged out"
-            });
-            await _context.SaveChangesAsync();
+                _context.AuditLogs.Add(new AuditLog
+                {
+                    UserId = user.Id,
+                    Action = "Logout",
+                    Details = "User logged out"
+                });
+                await _context.SaveChangesAsync();
+
+                var sessionToken = HttpContext.Session.GetString("SessionToken");
+                if (!string.IsNullOrEmpty(sessionToken))
+                {
+                    var session = await _context.Sessions
+                        .FirstOrDefaultAsync(s => s.SessionToken == sessionToken);
+
+                    if (session != null)
+                    {
+                        session.EndTime = DateTime.UtcNow;
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+            }
+
+            await _signInManager.SignOutAsync();
+            HttpContext.Session.Clear();
+            _logger.LogInformation("User logged out");
+            return RedirectToAction("Login", "Account");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during logout");
+            return RedirectToAction("Login", "Account");
         }
 
-        await _signInManager.SignOutAsync();
-        HttpContext.Session.Clear();
-        _logger.LogInformation("User logged out");
-        return RedirectToAction("Login");
     }
 
 
@@ -264,5 +366,30 @@ public class AccountController : Controller
         ViewData["LockoutMilliseconds"] = (int)LockoutDuration.TotalMilliseconds;
         return View();
     }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ExtendSession()
+    {
+        var user = await _userManager.GetUserAsync(User);
+        if (user != null)
+        {
+            var sessionToken = HttpContext.Session.GetString("SessionToken");
+            if (!string.IsNullOrEmpty(sessionToken))
+            {
+                var session = await _context.Sessions
+                    .FirstOrDefaultAsync(s => s.SessionToken == sessionToken);
+
+                if (session != null)
+                {
+                    session.StartTime = DateTime.UtcNow;
+                    await _context.SaveChangesAsync();
+                    return Ok();
+                }
+            }
+        }
+        return Unauthorized();
+    }
+
 
 }

@@ -14,6 +14,8 @@ namespace AS_Assignment2.Models
 
         public DbSet<AuditLog> AuditLogs { get; set; }
         public DbSet<LoginAttempt> LoginAttempts { get; set; }
+        public DbSet<Session> Sessions { get; set; }
+
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
@@ -28,6 +30,12 @@ namespace AS_Assignment2.Models
                 .HasOne(la => la.User)
                 .WithMany()
                 .HasForeignKey(la => la.UserId);
+            builder.Entity<Session>(entity =>
+            {
+                entity.HasKey(s => s.Id);
+                entity.Property(s => s.SessionToken).IsRequired();
+                entity.HasIndex(s => s.SessionToken).IsUnique();
+            });
         }
     }
 }

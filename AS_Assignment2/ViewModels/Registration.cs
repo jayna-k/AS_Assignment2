@@ -6,10 +6,12 @@ public class RegisterViewModel
 {
     [Required]
     [Display(Name = "First Name")]
+    [RegularExpression(@"^[a-zA-Z \-']{1,50}$", ErrorMessage = "Invalid characters")]
     public string FirstName { get; set; }
 
     [Required]
     [Display(Name = "Last Name")]
+    [RegularExpression(@"^[a-zA-Z \-']{1,50}$", ErrorMessage = "Invalid characters")]
     public string LastName { get; set; }
 
     [Required]
@@ -28,6 +30,7 @@ public class RegisterViewModel
 
     [Required]
     [Display(Name = "Billing Address")]
+    [StringLength(200, MinimumLength = 5)]
     public string BillingAddress { get; set; }
 
     [Required]

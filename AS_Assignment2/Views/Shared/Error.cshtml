@@ -3,10 +3,43 @@
     ViewData["Title"] = "Error";
     var statusMessage = Model.StatusCode switch
     {
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        402 => "Payment Required",
         403 => "Access Denied",
         404 => "Page Not Found",
+        405 => "Method Not Allowed",
+        406 => "Not Acceptable",
+        407 => "Proxy Authentication Required",
+        408 => "Request Timeout",
+        409 => "Conflict",
+        410 => "Gone",
+        411 => "Length Required",
+        412 => "Precondition Failed",
+        413 => "Payload Too Large",
+        414 => "URI Too Long",
+        415 => "Unsupported Media Type",
+        416 => "Range Not Satisfiable",
+        417 => "Expectation Failed",
         500 => "Internal Server Error",
+        501 => "Not Implemented",
+        502 => "Bad Gateway",
+        503 => "Service Unavailable",
+        504 => "Gateway Timeout",
+        505 => "HTTP Version Not Supported",
         _ => "Something went wrong"
+    };
+
+    // Optional: Add detailed descriptions for each error
+    Model.ErrorMessage ??= Model.StatusCode switch
+    {
+        400 => "The server cannot process the request due to invalid syntax.",
+        401 => "Authentication is required to access this resource.",
+        403 => "You do not have permission to access this page.",
+        404 => "The page you requested could not be found.",
+        405 => "This HTTP method is not allowed for the requested resource.",
+        500 => "An internal server error occurred. Please try again later.",
+        _ => "An unexpected error occurred."
     };
 }
 

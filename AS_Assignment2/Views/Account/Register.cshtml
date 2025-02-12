@@ -29,7 +29,13 @@
 
     <div class="form-group">
         <label asp-for="CreditCardNo" class="control-label"></label>
-        <input asp-for="CreditCardNo" class="form-control" />
+        <input asp-for="CreditCardNo" 
+       class="form-control" 
+       type="text" 
+       inputmode="numeric"
+       pattern="[0-9]*"
+       title="Only numbers are allowed"
+       maxlength="16" />
         <span asp-validation-for="CreditCardNo" class="text-danger"></span>
     </div>
 

@@ -15,11 +15,9 @@ public class RegisterViewModel
     public string LastName { get; set; }
 
     [Required]
-    [MaxLength(500)]
-    [DataType(DataType.CreditCard)]
     [Display(Name = "Credit Card Number")]
-    [RegularExpression(@"^[0-9]{13,16}$|^([0-9]{4}-){3}[0-9]{4}$", ErrorMessage = "Credit card number must be between 13 and 16 digits and may include dashes.")]
-
+    [RegularExpression(@"^[0-9]{13,16}$",
+        ErrorMessage = "Credit card number must be 13-16 digits")]
     public string CreditCardNo { get; set; }
 
     [Required]

@@ -7,57 +7,28 @@ namespace AS_Assignment2.Controllers
 {
     public class ErrorController : Controller
     {
-        private readonly ILogger<ErrorController> _logger;
-
-        public ErrorController(ILogger<ErrorController> logger)
+        [Route("Error/{statusCode?}")]
+        public IActionResult HttpStatusCodeHandler(int? statusCode)
         {
-            _logger = logger;
-        }
-
-        [Route("Error/{statusCode}")]
-        public IActionResult HttpStatusCodeHandler(int statusCode)
-        {
-            var vm = new ErrorViewModel
+            var errorViewModel = new ErrorViewModel
             {
                 StatusCode = statusCode,
                 RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier
             };
 
-            switch (statusCode)
+            // Customize messages based on status code
+            errorViewModel.ErrorMessage = statusCode switch
             {
-                case 403:
-                    vm.ErrorMessage = "Access Denied/Forbidden";
-                    _logger.LogWarning($"403 Forbidden Error occurred. Request ID: {vm.RequestId}");
-                    break;
-                case 404:
-                    vm.ErrorMessage = "Resource not found";
-                    _logger.LogWarning($"404 Not Found Error occurred. Request ID: {vm.RequestId}");
-                    break;
-                case 500:
-                    vm.ErrorMessage = "Internal Server Error";
-                    _logger.LogError($"500 Internal Server Error occurred. Request ID: {vm.RequestId}");
-                    break;
-                default:
-                    vm.ErrorMessage = $"Unexpected error: {statusCode}";
-                    _logger.LogError($"{statusCode} Error occurred. Request ID: {vm.RequestId}");
-                    break;
-            }
-
-            return View("Error", vm);
-        }
-
-        [Route("Error")]
-        public IActionResult GlobalErrorHandler()
-        {
-            var vm = new ErrorViewModel
-            {
-                StatusCode = 500,
-                RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier,
-                ErrorMessage = "An unexpected error occurred"
+                400 => "The server cannot process your request due to invalid syntax.",
+                401 => "Authentication is required to access this resource.",
+                403 => "You do not have permission to view this page.",
+                404 => "The page you requested does not exist.",
+                405 => "The HTTP method used is not allowed for this resource.",
+                500 => "An unexpected error occurred on the server.",
+                _ => "An error occurred while processing your request."
             };
 
-            _logger.LogError($"Global error handler triggered. Request ID: {vm.RequestId}");
-            return View("Error", vm);
+            return View("Error", errorViewModel);
         }
     }
 }

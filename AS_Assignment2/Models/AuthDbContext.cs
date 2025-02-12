@@ -36,6 +36,9 @@ namespace AS_Assignment2.Models
                 entity.Property(s => s.SessionToken).IsRequired();
                 entity.HasIndex(s => s.SessionToken).IsUnique();
             });
+            builder.Entity<UserClass>()
+               .Property(u => u.PasswordLastChanged)
+               .HasDefaultValueSql("GETUTCDATE()");
         }
     }
 }

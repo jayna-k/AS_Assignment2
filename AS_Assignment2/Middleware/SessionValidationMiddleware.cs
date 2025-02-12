@@ -37,7 +37,7 @@ namespace AS_Assignment2.Middleware
                 var session = await dbContext.Sessions
                     .FirstOrDefaultAsync(s => s.SessionToken == sessionToken && s.EndTime == null);
 
-                if (session == null || DateTime.UtcNow > session.StartTime.AddMinutes(1))
+                if (session == null || DateTime.UtcNow > session.StartTime.AddMinutes(10))
                 {
                     await PerformFullLogout(context, dbContext, signInManager, userManager, session);
                     return;

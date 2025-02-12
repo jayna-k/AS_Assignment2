@@ -1,7 +1,10 @@
 using AS_Assignment2.Middleware;
 using AS_Assignment2.Models;
+using AS_Assignment2.Services;
+using AS_Assignment2.ViewModels;
 using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.EntityFrameworkCore;
 using static AS_Assignment2.Services.AesEncryption;
 
@@ -23,9 +26,14 @@ builder.Services.AddIdentity<UserClass, IdentityRole>(options =>
     options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromSeconds(30);
     options.Lockout.AllowedForNewUsers = true;
 })
-.AddEntityFrameworkStores<AuthDbContext>();
+.AddEntityFrameworkStores<AuthDbContext>()
+.AddDefaultTokenProviders();
+
+builder.Services.Configure<DataProtectionTokenProviderOptions>(opt =>
+    opt.TokenLifespan = TimeSpan.FromHours(2));
 
 builder.Services.AddScoped<IEncryptionService, AesEncryptionService>();
+
 
 
 // Add services to the container.
@@ -43,7 +51,7 @@ builder.Services.AddSession(options =>
     options.Cookie.HttpOnly = true;
     options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
     options.Cookie.SameSite = SameSiteMode.Strict;
-    options.Cookie.MaxAge = TimeSpan.FromMinutes(1);
+    options.Cookie.MaxAge = TimeSpan.FromMinutes(10);
 });
 
 // Configure cookies
@@ -55,6 +63,11 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
     options.Cookie.SameSite = SameSiteMode.Strict;
 });
+
+builder.Services.Configure<EmailConfiguration>(
+    builder.Configuration.GetSection("EmailConfiguration"));
+builder.Services.AddScoped<ICustomEmailSender, EmailSender>();
+
 
 var app = builder.Build();
 

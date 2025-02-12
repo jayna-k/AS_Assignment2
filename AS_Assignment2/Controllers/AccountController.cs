@@ -130,7 +130,7 @@ public class AccountController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "Registration error for {Email}", model.Email);
-            ModelState.AddModelError("", "An error occurred during registration. Please try again.");
+            return RedirectToAction("Error", "Error", new { statusCode = 500 });
         }
         return View(model);
 
@@ -206,6 +206,27 @@ public class AccountController : Controller
 
                 if (user != null)
                 {
+
+                    // Handle locked accounts
+                    if (user.IsLockedOut)
+                    {
+                        if (user.LockoutEndTime.HasValue && user.LockoutEndTime.Value > DateTime.UtcNow)
+                        {
+                            var timeLeft = user.LockoutEndTime.Value - DateTime.UtcNow;
+                            ModelState.AddModelError("",
+                                $"Account locked. Try again in {timeLeft.Minutes} minutes");
+                            return View(model);
+                        }
+                        else
+                        {
+                            user.IsLockedOut = false;
+                            user.FailedLoginAttempts = 0;
+                            user.LockoutEndTime = null;
+                            await _userManager.UpdateAsync(user);
+                        }
+                    }
+
+
                     // Track login attempt
                     _context.LoginAttempts.Add(new LoginAttempt
                     {
@@ -215,68 +236,34 @@ public class AccountController : Controller
                         IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString()
                     });
 
-                    var result = await _signInManager.PasswordSignInAsync(
-                        user.UserName,
-                        model.Password,
-                        isPersistent: false, // Set to true for "remember me" functionality
-                        lockoutOnFailure: true);
+                    // Check password without signing in
+                    var result = await _signInManager.CheckPasswordSignInAsync(user, model.Password, lockoutOnFailure: true);
+
 
                     if (result.Succeeded)
                     {
-                        // Update attempt to successful
-                        var attempt = _context.LoginAttempts.Local.Last();
-                        attempt.IsSuccessful = true;
-
-                        // Terminate existing sessions
-                         var activeSessions = await _context.Sessions
-                        .Where(s => s.UserId == user.Id && s.EndTime == null)
-                        .ToListAsync();
-
-                    foreach (var session in activeSessions)
-                    {
-                        session.EndTime = DateTime.UtcNow;
-                    }
-
-                    // Create new session
-                    var newSession = new Session
-                    {
-                        UserId = user.Id,
-                        StartTime = DateTime.UtcNow,
-                        SessionToken = Guid.NewGuid().ToString()
-                    };
-
-                    _context.Sessions.Add(newSession);
-                    await _context.SaveChangesAsync();
-
-                    HttpContext.Session.SetString("SessionToken", newSession.SessionToken);
-
                         // Check password expiration
                         var maxAgeDays = _configuration.GetValue<int>("PasswordPolicy:MaxPasswordAgeDays");
                         if ((DateTime.UtcNow - user.PasswordLastChanged).TotalDays > maxAgeDays)
                         {
-                            await _signInManager.SignOutAsync();
                             ModelState.AddModelError("",
                                 $"Password expired {Math.Floor((DateTime.UtcNow - user.PasswordLastChanged).TotalDays - maxAgeDays)} days ago");
                             return View(model);
                         }
 
-                        // Add audit log
-                        _context.AuditLogs.Add(new AuditLog
-                        {
-                            UserId = user.Id,
-                            Action = "Login",
-                            Details = "Successful login"
-                        });
-                        await _context.SaveChangesAsync();
+                        // Generate and send OTP
+                        string otp = GenerateOtp();
+                        await SendOtpEmail(user.Email, otp);
 
-                        HttpContext.Session.SetString("SessionToken", newSession.SessionToken);
-                        _logger.LogInformation("User {Email} logged in", model.Email);
-                        return RedirectToAction("Index", "Home");
-                    }
-                    else if (result.RequiresTwoFactor)
-                    {
-                        // Implement 2FA if needed
-                        return RedirectToPage("./LoginWith2fa");
+                        // Store OTP and email in session
+                        HttpContext.Session.SetString("Otp", otp);
+                        HttpContext.Session.SetString("OtpEmail", user.Email);
+
+                        // Ensure session is persisted before redirect
+                        await HttpContext.Session.CommitAsync();
+
+                        TempData["SuccessMessage"] = "OTP sent to your email. Please check and enter below.";
+                        return RedirectToAction("Otp");
                     }
                     else if (result.IsLockedOut)
                     {
@@ -290,11 +277,17 @@ public class AccountController : Controller
                         _logger.LogWarning("User {Email} locked out", model.Email);
                         return RedirectToAction("Lockout");
                     }
+                    else
+                    {
+                        ModelState.AddModelError(string.Empty, "Invalid login attempt");
+                        _logger.LogWarning("Failed login attempt for {Email}", model.Email);
+                    }
                 }
-
-                // Generic error message to prevent account enumeration
-                ModelState.AddModelError(string.Empty, "Invalid login attempt");
-                _logger.LogWarning("Failed login attempt for {Email}", model.Email);
+                else
+                {
+                    // Generic error message to prevent account enumeration
+                    ModelState.AddModelError(string.Empty, "Invalid login attempt");
+                }
             }
             return View(model);
         }
@@ -656,5 +649,106 @@ public class AccountController : Controller
     public IActionResult ResetPasswordConfirmation()
     {
         return View();
+    }
+
+    [HttpGet]
+    [AllowAnonymous]
+    public IActionResult Otp()
+    {
+        var storedEmail = HttpContext.Session.GetString("OtpEmail");
+
+        if (string.IsNullOrEmpty(storedEmail))
+        {
+            return RedirectToAction("Login");
+        }
+
+        return View(new Otp { Email = storedEmail });
+    }
+
+    [HttpPost]
+    [AllowAnonymous]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Otp(Otp model)
+    {
+        if (!ModelState.IsValid)
+        {
+            TempData["ErrorMessage"] = "Please enter a valid OTP.";
+            return View(model);
+        }
+
+        var storedOtp = HttpContext.Session.GetString("Otp");
+        var storedEmail = HttpContext.Session.GetString("OtpEmail");
+
+        if (storedOtp == null || model.OTP != storedOtp || storedEmail != model.Email)
+        {
+            TempData["ErrorMessage"] = "Invalid OTP. Please try again.";
+            return View(model);
+        }
+
+        var user = await _userManager.FindByEmailAsync(model.Email);
+        if (user == null)
+        {
+            TempData["ErrorMessage"] = "User not found.";
+            return RedirectToAction("Login");
+        }
+
+        // Terminate existing sessions
+        var activeSessions = await _context.Sessions
+            .Where(s => s.UserId == user.Id && s.EndTime == null)
+            .ToListAsync();
+
+        foreach (var session in activeSessions)
+        {
+            session.EndTime = DateTime.UtcNow;
+        }
+
+        // Create new session
+        var newSession = new Session
+        {
+            UserId = user.Id,
+            StartTime = DateTime.UtcNow,
+            SessionToken = Guid.NewGuid().ToString()
+        };
+
+        _context.Sessions.Add(newSession);
+        await _context.SaveChangesAsync();
+
+        HttpContext.Session.SetString("SessionToken", newSession.SessionToken);
+
+        // Add audit log
+        _context.AuditLogs.Add(new AuditLog
+        {
+            UserId = user.Id,
+            Action = "Login",
+            Details = "Successful login with OTP"
+        });
+        await _context.SaveChangesAsync();
+
+        // Sign in the user
+        await _signInManager.SignInAsync(user, isPersistent: false);
+
+        // Clear OTP session data
+        HttpContext.Session.Remove("Otp");
+        HttpContext.Session.Remove("OtpEmail");
+
+        _logger.LogInformation("User {Email} logged in with OTP", model.Email);
+        return RedirectToAction("Index", "Home");
+    }
+
+    private string GenerateOtp()
+    {
+        Random random = new Random();
+        return random.Next(100000, 999999).ToString();
+    }
+
+    private async Task SendOtpEmail(string email, string otp)
+    {
+        var message = new Message(
+            new[] { email },
+            "Your OTP Code",
+            $"Your verification code is: {otp}"
+        );
+
+        await _emailSender.SendEmailAsync(message);
     }
 }

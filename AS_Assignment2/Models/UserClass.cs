@@ -14,6 +14,9 @@ namespace AS_Assignment2.Models
 		public string ShippingAddress { get; set; }
 		public string? PhotoPath { get; set; }
         public string? OTP { get; set; }
+        public int FailedLoginAttempts { get; set; }
+        public bool IsLockedOut { get; set; }
+        public DateTime? LockoutEndTime { get; set; }
         public DateTime PasswordLastChanged { get; set; } = DateTime.UtcNow;
         public string PasswordHistory { get; set; } = "";
     }

@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Text.Json.Serialization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using AS_Assignment2.Services;
 
 public class AccountController : Controller
 {
@@ -20,6 +21,7 @@ public class AccountController : Controller
     private readonly IEncryptionService _encryptionService;
     private readonly ILogger<AccountController> _logger;
     private readonly IConfiguration _configuration;
+    private readonly ICustomEmailSender _emailSender;
 
 
     private readonly AuthDbContext _context;
@@ -31,6 +33,7 @@ public class AccountController : Controller
     UserManager<UserClass> userManager,
     SignInManager<UserClass> signInManager,
     IEncryptionService encryptionService,
+    ICustomEmailSender emailSender,
     IConfiguration configuration,
     ILogger<AccountController> logger,
         AuthDbContext context)
@@ -39,6 +42,7 @@ public class AccountController : Controller
             _userManager = userManager;
             _signInManager = signInManager;
             _encryptionService = encryptionService;
+            _emailSender = emailSender;
             _configuration = configuration;
             _logger = logger;
             _context = context;
@@ -246,6 +250,16 @@ public class AccountController : Controller
 
                     HttpContext.Session.SetString("SessionToken", newSession.SessionToken);
 
+                        // Check password expiration
+                        var maxAgeDays = _configuration.GetValue<int>("PasswordPolicy:MaxPasswordAgeDays");
+                        if ((DateTime.UtcNow - user.PasswordLastChanged).TotalDays > maxAgeDays)
+                        {
+                            await _signInManager.SignOutAsync();
+                            ModelState.AddModelError("",
+                                $"Password expired {Math.Floor((DateTime.UtcNow - user.PasswordLastChanged).TotalDays - maxAgeDays)} days ago");
+                            return View(model);
+                        }
+
                         // Add audit log
                         _context.AuditLogs.Add(new AuditLog
                         {
@@ -436,11 +450,33 @@ public class AccountController : Controller
             if (user == null)
                 return RedirectToAction("Login");
 
-            // Add null check for password fields
-            if (string.IsNullOrEmpty(model.OldPassword) || string.IsNullOrEmpty(model.NewPassword))
+            // Check minimum password age
+            var minAgeSeconds = _configuration.GetValue<int>("PasswordPolicy:MinPasswordAgeSeconds");
+            if ((DateTime.UtcNow - user.PasswordLastChanged).TotalSeconds < minAgeSeconds)
             {
-                ModelState.AddModelError("", "Password fields cannot be empty");
+                ModelState.AddModelError("",
+                    $"Password cannot be changed within {minAgeSeconds} seconds");
                 return View(model);
+            }
+
+            // Check password history
+            var historySize = _configuration.GetValue<int>("PasswordPolicy:PasswordHistorySize");
+            var previousHashes = user.PasswordHistory?
+                .Split(';', StringSplitOptions.RemoveEmptyEntries)
+                .Take(historySize) ?? Enumerable.Empty<string>();
+
+            var hasher = _userManager.PasswordHasher;
+
+            // Verify against all historical hashes
+            foreach (var oldHash in previousHashes)
+            {
+                if (hasher.VerifyHashedPassword(user, oldHash, model.NewPassword)
+                    == PasswordVerificationResult.Success)
+                {
+                    ModelState.AddModelError("NewPassword",
+                        "Cannot reuse recent passwords");
+                    return View(model);
+                }
             }
 
             // Verify current password
@@ -448,13 +484,6 @@ public class AccountController : Controller
             if (!isCurrentPasswordValid)
             {
                 ModelState.AddModelError("OldPassword", "Current password is incorrect");
-                return View(model);
-            }
-
-            // Check if new password is same as old
-            if (model.OldPassword == model.NewPassword)
-            {
-                ModelState.AddModelError("NewPassword", "New password must be different from current password");
                 return View(model);
             }
 
@@ -467,6 +496,16 @@ public class AccountController : Controller
                 return View(model);
             }
 
+            // Update password history with OLD hash
+            var updatedHistory = new[] { user.PasswordHash } // Store previous hash before change
+                .Concat(previousHashes)
+                .Take(historySize)
+                .ToArray();
+
+            user.PasswordHistory = string.Join(";", updatedHistory);
+            user.PasswordLastChanged = DateTime.UtcNow;
+            await _userManager.UpdateAsync(user);
+
             // Audit log
             _context.AuditLogs.Add(new AuditLog
             {
@@ -476,7 +515,7 @@ public class AccountController : Controller
             });
             await _context.SaveChangesAsync();
 
-            // Re-sign in user to refresh authentication cookie
+            // Re-sign in user
             await _signInManager.RefreshSignInAsync(user);
             _logger.LogInformation("User {UserId} changed password successfully", user.Id);
 
@@ -488,5 +527,134 @@ public class AccountController : Controller
             ModelState.AddModelError("", "An error occurred while changing password");
             return View(model);
         }
+    }
+
+    [HttpGet]
+    [AllowAnonymous]
+    public IActionResult ForgotPassword()
+    {
+        return View();
+    }
+
+    [HttpPost]
+    [AllowAnonymous]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ForgotPassword(ForgotPassword model)
+    {
+        if (!ModelState.IsValid)
+            return View(model);
+
+        var sanitizedEmail = InputSanitizer.Sanitize(model.Email);
+        var user = await _userManager.FindByEmailAsync(sanitizedEmail);
+
+        if (user == null)
+            return RedirectToAction(nameof(ForgotPasswordConfirmation));
+
+        var token = await _userManager.GeneratePasswordResetTokenAsync(user);
+        var callbackUrl = Url.Action(
+            nameof(ResetPassword),
+            "Account",
+            new { token, email = user.Email },
+            protocol: Request.Scheme
+        );
+
+        var message = new Message(
+            new[] { user.Email },
+            "Password Reset Request",
+            $"Please reset your password by clicking here: {callbackUrl}"
+        );
+
+        // Check if _emailSender is null
+        if (_emailSender == null)
+        {
+            throw new InvalidOperationException("Email sender is not initialized.");
+        }
+
+        try
+        {
+            await _emailSender.SendEmailAsync(message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending email to {Email}", user.Email);
+            ModelState.AddModelError("", "An error occurred while sending the email.");
+            return View(model);
+        }
+
+        return RedirectToAction(nameof(ForgotPasswordConfirmation));
+    }
+
+    [HttpGet]
+    [AllowAnonymous]
+    public IActionResult ForgotPasswordConfirmation()
+    {
+        return View();
+    }
+
+    [HttpGet]
+    [AllowAnonymous]
+    public IActionResult ResetPassword(string token, string email)
+    {
+        var model = new ResetPassword { Token = token, Email = email };
+        return View(model);
+    }
+
+    [HttpPost]
+    [AllowAnonymous]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ResetPassword(ResetPassword model)
+    {
+        if (!ModelState.IsValid)
+            return View(model);
+
+        var user = await _userManager.FindByEmailAsync(model.Email);
+        if (user == null)
+            return RedirectToAction(nameof(ResetPasswordConfirmation));
+
+        // Check password history
+        var hasher = _userManager.PasswordHasher;
+        var newPasswordHash = hasher.HashPassword(user, model.Password);
+        var previousHashes = user.PasswordHistory?
+            .Split(';', StringSplitOptions.RemoveEmptyEntries)
+            .Take(_configuration.GetValue<int>("PasswordPolicy:PasswordHistorySize"))
+            ?? Enumerable.Empty<string>();
+
+        foreach (var oldHash in previousHashes)
+        {
+            if (hasher.VerifyHashedPassword(user, oldHash, model.Password)
+                == PasswordVerificationResult.Success)
+            {
+                ModelState.AddModelError("Password",
+                    "Cannot reuse recent passwords");
+                return View(model);
+            }
+        }
+
+        var result = await _userManager.ResetPasswordAsync(user, model.Token, model.Password);
+        if (!result.Succeeded)
+        {
+            foreach (var error in result.Errors)
+                ModelState.AddModelError(string.Empty, error.Description);
+            return View();
+        }
+
+        // Update password history
+        var updatedHistory = new[] { user.PasswordHash }
+            .Concat(previousHashes)
+            .Take(_configuration.GetValue<int>("PasswordPolicy:PasswordHistorySize"))
+            .ToArray();
+
+        user.PasswordHistory = string.Join(";", updatedHistory);
+        user.PasswordLastChanged = DateTime.UtcNow;
+        await _userManager.UpdateAsync(user);
+
+        return RedirectToAction(nameof(ResetPasswordConfirmation));
+    }
+
+    [HttpGet]
+    [AllowAnonymous]
+    public IActionResult ResetPasswordConfirmation()
+    {
+        return View();
     }
 }

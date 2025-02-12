@@ -1,3 +1,4 @@
+using AS_Assignment2.Middleware;
 using AS_Assignment2.Models;
 using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.AspNetCore.Identity;
@@ -26,6 +27,7 @@ builder.Services.AddIdentity<UserClass, IdentityRole>(options =>
 
 builder.Services.AddScoped<IEncryptionService, AesEncryptionService>();
 
+
 // Add services to the container.
 builder.Services.AddControllersWithViews();
 builder.Services.AddRazorPages();
@@ -36,16 +38,22 @@ builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
 builder.Services.AddDistributedMemoryCache(); //save session in memory
 builder.Services.AddSession(options =>
 {
-    options.IdleTimeout = TimeSpan.FromMinutes(20);
+    options.IdleTimeout = TimeSpan.FromMinutes(1);
+    options.Cookie.Name = "SecureSession";
     options.Cookie.HttpOnly = true;
     options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    options.Cookie.SameSite = SameSiteMode.Strict;
+    options.Cookie.MaxAge = TimeSpan.FromMinutes(1);
 });
 
-builder.Services.Configure<CookiePolicyOptions>(options =>
+// Configure cookies
+builder.Services.ConfigureApplicationCookie(options =>
 {
-    options.MinimumSameSitePolicy = SameSiteMode.Strict;
-    options.HttpOnly = HttpOnlyPolicy.Always;
-    options.Secure = CookieSecurePolicy.Always;
+    options.ExpireTimeSpan = TimeSpan.FromMinutes(1);
+    options.SlidingExpiration = true;
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    options.Cookie.SameSite = SameSiteMode.Strict;
 });
 
 var app = builder.Build();
@@ -79,6 +87,9 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseSession();
+app.UseMiddleware<SessionValidationMiddleware>();
+
+
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Home}/{action=Index}/{id?}");

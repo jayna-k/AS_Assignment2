@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using Microsoft.AspNetCore.Mvc;
+using System.ComponentModel.DataAnnotations;
 
 namespace AS_Assignment2.ViewModels
 {
@@ -16,6 +17,9 @@ namespace AS_Assignment2.ViewModels
         [MinLength(12, ErrorMessage = "Password must be at least 12 characters")]
         [Display(Name = "Password")]
         public string Password { get; set; }
+
+        [HiddenInput]
+        public string RecaptchaToken { get; set; }
 
     }
 }

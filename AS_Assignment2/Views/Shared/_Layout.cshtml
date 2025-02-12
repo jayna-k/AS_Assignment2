@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/AS_Assignment2.styles.css" asp-append-version="true" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
+    <meta name="csrf-token" content="@Html.AntiForgeryToken()" />
 </head>
 <body>
     @{
@@ -66,6 +68,7 @@
                     @if (User.Identity.IsAuthenticated)
                     {
                         <form class="form-inline" asp-controller="Account" asp-action="Logout">
+                            @Html.AntiForgeryToken() <!-- Add this line -->
                             <button type="submit" class="btn btn-link nav-link text-dark">Logout</button>
                         </form>
                     }
@@ -84,11 +87,177 @@
             &copy; 2025 - AS_Assignment2 - <a asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
         </div>
     </footer>
+
+    @if (User.Identity.IsAuthenticated)
+    {
+        <!-- Session Warning Modal -->
+        <div class="modal fade" id="sessionWarningModal" tabindex="-1" aria-labelledby="sessionWarningLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header bg-warning">
+                        <h5 class="modal-title" id="sessionWarningLabel">Session Expiring Soon</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="d-flex align-items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-exclamation-triangle-fill text-danger fs-4"></i>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                Your session will expire in <span id="countdown" class="fw-bold">10</span> seconds.
+                                Continue working to stay logged in.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="logoutNow">Logout Now</button>
+                        <button type="button" class="btn btn-primary" id="continueSession">Continue</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/jquery-validation/dist/jquery.validate.min.js"></script>
     <script src="~/lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
+
+    @if (User.Identity.IsAuthenticated)
+    {
+        <script>
+            // Session Timeout Management
+            (function () {
+                const timeoutMinutes = 1;
+                const warningSeconds = 10;
+                let timeoutTimer, countdownInterval;
+                let warningActive = false;
+
+                // Initialize timer
+                function initSessionTimer() {
+                    resetTimers();
+                    document.addEventListener('mousemove', resetTimers);
+                    document.addEventListener('keydown', resetTimers);
+                    document.addEventListener('scroll', resetTimers);
+                    document.addEventListener('click', resetTimers);
+                }
+
+                // Reset all timers
+                function resetTimers() {
+                    clearTimeout(timeoutTimer);
+                    if (warningActive) {
+                        clearInterval(countdownInterval);
+                        bootstrap.Modal.getInstance(document.getElementById('sessionWarningModal')).hide();
+                        warningActive = false;
+                    }
+                    timeoutTimer = setTimeout(showWarning, (timeoutMinutes * 60 * 1000) - (warningSeconds * 1000));
+                }
+
+                // Show warning modal
+                function showWarning() {
+                    warningActive = true;
+                    const modal = new bootstrap.Modal(document.getElementById('sessionWarningModal'));
+                    let secondsLeft = warningSeconds;
+
+                    document.getElementById('countdown').textContent = secondsLeft;
+                    modal.show();
+
+                    countdownInterval = setInterval(() => {
+                        secondsLeft--;
+                        document.getElementById('countdown').textContent = secondsLeft;
+
+                        if (secondsLeft <= 0) {
+                            clearInterval(countdownInterval);
+                            performLogout();
+                        }
+                    }, 1000);
+                }
+
+                // Extend session with redirect handling
+                function extendSession() {
+                    fetch('@Url.Action("ExtendSession", "Account")')
+                        .then(response => {
+                            if (response.redirected) {
+                                // Handle server-side initiated logout
+                                window.location.href = response.url;
+                                return;
+                            }
+                            if (!response.ok) throw new Error('Session extension failed');
+                            resetTimers();
+                        })
+                        .catch(error => performLogout());
+                }
+
+                // Update performLogout function
+                function performLogout() {
+                    // Get token from meta tag or form input
+                    const token = document.querySelector('meta[name="csrf-token"]')?.content ||
+                        document.querySelector('input[name="__RequestVerificationToken"]')?.value;
+
+                    if (!token) {
+                        console.error('CSRF token not found');
+                        window.location.href = '/Account/Login';
+                        return;
+                    }
+
+                    // Clear timers and listeners
+                    clearTimeout(timeoutTimer);
+                    clearInterval(countdownInterval);
+
+                    // Initiate server-side logout
+                    fetch('@Url.Action("Logout", "Account")', {
+                        method: 'POST',
+                        headers: {
+                            'RequestVerificationToken': token,
+                            'Content-Type': 'application/json'
+                        }
+                    })
+                        .then(response => {
+                            if (response.redirected) {
+                                window.location.href = response.url;
+                            } else {
+                                window.location.href = '/Account/Login';
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Logout failed:', error);
+                            window.location.href = '/Account/Login';
+                        });
+                }
+
+                // Global AJAX redirect handling
+                (function () {
+                    const originalFetch = window.fetch;
+                    window.fetch = async function (...args) {
+                        const token = document.querySelector('meta[name="csrf-token"]')?.content ||
+                            document.querySelector('input[name="__RequestVerificationToken"]')?.value;
+
+                        if (token && args[1] && args[1].method && args[1].method.toUpperCase() !== 'GET') {
+                            args[1].headers = {
+                                ...args[1].headers,
+                                'RequestVerificationToken': token
+                            };
+                        }
+
+                        const response = await originalFetch(...args);
+                        if (response.redirected && response.url.includes('/Account/Login')) {
+                            window.location.href = response.url;
+                        }
+                        return response;
+                    };
+                })();
+
+                // Event listeners for modal buttons
+                document.getElementById('continueSession')?.addEventListener('click', extendSession);
+                document.getElementById('logoutNow')?.addEventListener('click', performLogout);
+
+                // Initialize when DOM is ready
+                document.addEventListener('DOMContentLoaded', initSessionTimer);
+            })();
+        </script>
+    }
+
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

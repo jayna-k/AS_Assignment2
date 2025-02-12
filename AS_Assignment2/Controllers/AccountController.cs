@@ -83,6 +83,21 @@ public class AccountController : Controller
             {
                 var encryptedCard = EncryptCreditCard(model.CreditCardNo);
 
+                string photoPath = null;
+
+                if (model.Photo != null)
+                {
+                    try
+                    {
+                        photoPath = await SavePhoto(model.Photo);
+                    }
+                    catch (InvalidDataException ex)
+                    {
+                        ModelState.AddModelError("Photo", ex.Message);
+                        return View(model);
+                    }
+                }
+
                 var user = new UserClass
                 {
                     UserName = model.Email,
@@ -93,7 +108,7 @@ public class AccountController : Controller
                     ShippingAddress = model.ShippingAddress,
                     CreditCardNo = encryptedCard,
                     MobileNo = model.MobileNo,
-                    PhotoPath = model.Photo != null ? await SavePhoto(model.Photo) : null
+                    PhotoPath = photoPath
                 };
 
                 _logger.LogInformation("Attempting to create user: {User}", user);
@@ -142,27 +157,26 @@ public class AccountController : Controller
 
     private async Task<string> SavePhoto(IFormFile photo)
     {
-        // Validate MIME type
-        var allowedMimeTypes = new[] { "image/jpeg", "image/png" };
+        // Correct allowed MIME types for JPG
+        var allowedMimeTypes = new[] { "image/jpeg", "image/jpg" }; // Both common variations
         if (!allowedMimeTypes.Contains(photo.ContentType.ToLower()))
-            throw new InvalidDataException("Invalid file type");
+            throw new InvalidDataException("Invalid file type. Only JPG images are allowed.");
 
-        // Validate extension
+        // Allow both .jpg and .jpeg extensions
         var extension = Path.GetExtension(photo.FileName).ToLower();
-        if (!new[] { ".jpg", ".png" }.Contains(extension))
-            throw new InvalidDataException("Invalid file extension");
+        if (!new[] { ".jpg", ".jpeg" }.Contains(extension))
+            throw new InvalidDataException("Invalid file extension. Only .jpg and .jpeg are allowed.");
 
-        // Restrict file size (e.g., 5MB)
-        if (photo.Length > 5 * 1024 * 1024)
-            throw new InvalidDataException("File too large");
+        // Sanitize filename
+        var sanitizedFileName = Path.GetFileNameWithoutExtension(photo.FileName)
+            .Replace(" ", "_", StringComparison.Ordinal);
+        sanitizedFileName = Regex.Replace(sanitizedFileName, "[^a-zA-Z0-9_.-]+", "", RegexOptions.Compiled);
+        var uniqueFileName = $"{Guid.NewGuid()}_{sanitizedFileName}{extension}";
+
 
         var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "images", "photos");
-        if (!Directory.Exists(uploadsFolder))
-        {
-            Directory.CreateDirectory(uploadsFolder);
-        }
+        Directory.CreateDirectory(uploadsFolder); // Ensure directory exists
 
-        var uniqueFileName = Guid.NewGuid().ToString() + "_" + photo.FileName;
         var filePath = Path.Combine(uploadsFolder, uniqueFileName);
 
         using (var fileStream = new FileStream(filePath, FileMode.Create))

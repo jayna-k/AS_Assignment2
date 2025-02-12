@@ -52,7 +52,7 @@ public class RegisterViewModel
     public string ConfirmPassword { get; set; }
 
     [DataType(DataType.Upload)]
-    [AllowedExtensions(new[] { ".jpg", ".jpeg" }, ErrorMessage = "Only JPG files are allowed")]
+    [AllowedExtensions(new[] { ".jpg", ".jpeg" }, ErrorMessage = "Only JPG/JPEG files are allowed")]
     public IFormFile? Photo { get; set; }
 }
 

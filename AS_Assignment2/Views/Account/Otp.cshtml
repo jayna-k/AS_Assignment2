@@ -1,0 +1,31 @@
+﻿@model AS_Assignment2.ViewModels.Otp
+
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Otp">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
+            <!-- Hidden email field -->
+            <input type="hidden" asp-for="Email" />
+
+            @if (TempData["SuccessMessage"] != null)
+            {
+                <div class="alert alert-success">@TempData["SuccessMessage"]</div>
+            }
+            @if (TempData["ErrorMessage"] != null)
+            {
+                <div class="alert alert-danger">@TempData["ErrorMessage"]</div>
+            }
+
+            <div class="form-group">
+                <label asp-for="OTP" class="control-label"></label>
+                <input asp-for="OTP" class="form-control" />
+                <span asp-validation-for="OTP" class="text-danger"></span>
+            </div>
+
+            <div class="form-group">
+                <input type="submit" value="Verify OTP" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>

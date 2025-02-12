@@ -82,17 +82,15 @@ public class AccountController : Controller
             if (ModelState.IsValid)
             {
                 var encryptedCard = EncryptCreditCard(model.CreditCardNo);
-                _logger.LogInformation("Encrypted CC Length: {Length}", encryptedCard.Length);
-                _logger.LogDebug("Encrypted CC Value: {Value}", encryptedCard);
 
                 var user = new UserClass
                 {
                     UserName = model.Email,
                     Email = model.Email,
-                    FirstName = System.Net.WebUtility.HtmlEncode(model.FirstName),
-                    LastName = System.Net.WebUtility.HtmlEncode(model.LastName),
-                    BillingAddress = System.Net.WebUtility.HtmlEncode(model.BillingAddress),
-                    ShippingAddress = System.Net.WebUtility.HtmlEncode(model.ShippingAddress),
+                    FirstName = model.FirstName,
+                    LastName = model.LastName,
+                    BillingAddress = model.BillingAddress,
+                    ShippingAddress = model.ShippingAddress,
                     CreditCardNo = encryptedCard,
                     MobileNo = model.MobileNo,
                     PhotoPath = model.Photo != null ? await SavePhoto(model.Photo) : null
@@ -144,6 +142,20 @@ public class AccountController : Controller
 
     private async Task<string> SavePhoto(IFormFile photo)
     {
+        // Validate MIME type
+        var allowedMimeTypes = new[] { "image/jpeg", "image/png" };
+        if (!allowedMimeTypes.Contains(photo.ContentType.ToLower()))
+            throw new InvalidDataException("Invalid file type");
+
+        // Validate extension
+        var extension = Path.GetExtension(photo.FileName).ToLower();
+        if (!new[] { ".jpg", ".png" }.Contains(extension))
+            throw new InvalidDataException("Invalid file extension");
+
+        // Restrict file size (e.g., 5MB)
+        if (photo.Length > 5 * 1024 * 1024)
+            throw new InvalidDataException("File too large");
+
         var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "images", "photos");
         if (!Directory.Exists(uploadsFolder))
         {
@@ -170,14 +182,16 @@ public class AccountController : Controller
 
     public static class InputSanitizer
     {
-        private static readonly Regex _sqlInjectionRegex = new Regex(
-            @"(\b(ALTER|CREATE|DELETE|DROP|EXEC(UTE){0,1}|INSERT( +INTO){0,1}|MERGE|SELECT|UPDATE|UNION( +ALL){0,1})\b|;)|(\-\-)|(''?)",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        // More comprehensive regex for SQLi and XSS
+        private static readonly Regex _injectionRegex = new Regex(
+            @"(<|>|!|--|/\*|\*/|@@|char|nchar|xp_|exec|sp_|sysobjects|syscolumns|select|insert|update|delete|drop|alter|union|or|and|;|')",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled
+        );
 
         public static string Sanitize(string input)
         {
             if (string.IsNullOrWhiteSpace(input)) return input;
-            return _sqlInjectionRegex.Replace(input, match => string.Empty);
+            return _injectionRegex.Replace(input, "");
         }
     }
 
@@ -186,6 +200,8 @@ public class AccountController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Login(Login model)
     {
+        var sanitizedEmail = InputSanitizer.Sanitize(model.Email);
+
         try
         {
             if (ModelState.IsValid)
@@ -199,8 +215,6 @@ public class AccountController : Controller
                 }
 
                 HttpContext.Session.Clear();
-
-                var sanitizedEmail = InputSanitizer.Sanitize(model.Email);
                 var user = await _userManager.FindByEmailAsync(sanitizedEmail);
 
 
@@ -274,13 +288,14 @@ public class AccountController : Controller
                             Details = "Account locked due to multiple failed attempts"
                         });
                         await _context.SaveChangesAsync();
-                        _logger.LogWarning("User {Email} locked out", model.Email);
+
+                        _logger.LogWarning("User {Email} locked out", sanitizedEmail);
                         return RedirectToAction("Lockout");
                     }
                     else
                     {
                         ModelState.AddModelError(string.Empty, "Invalid login attempt");
-                        _logger.LogWarning("Failed login attempt for {Email}", model.Email);
+                        _logger.LogWarning("Failed login attempt for {Email}", sanitizedEmail);
                     }
                 }
                 else
@@ -293,7 +308,7 @@ public class AccountController : Controller
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Login error for {Email}", model.Email);
+            _logger.LogError(ex, "Login error for {Email}", sanitizedEmail);
             ModelState.AddModelError("", "An error occurred during login");
             return View(model);
         }
@@ -569,7 +584,7 @@ public class AccountController : Controller
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error sending email to {Email}", user.Email);
+            _logger.LogError(ex, "Error sending email to {Email}", sanitizedEmail);
             ModelState.AddModelError("", "An error occurred while sending the email.");
             return View(model);
         }
@@ -678,6 +693,8 @@ public class AccountController : Controller
 
         var storedOtp = HttpContext.Session.GetString("Otp");
         var storedEmail = HttpContext.Session.GetString("OtpEmail");
+        var sanitizedEmail = InputSanitizer.Sanitize(model.Email);
+
 
         if (storedOtp == null || model.OTP != storedOtp || storedEmail != model.Email)
         {
@@ -731,7 +748,7 @@ public class AccountController : Controller
         HttpContext.Session.Remove("Otp");
         HttpContext.Session.Remove("OtpEmail");
 
-        _logger.LogInformation("User {Email} logged in with OTP", model.Email);
+        _logger.LogInformation("User {Email} logged in with OTP", sanitizedEmail);
         return RedirectToAction("Index", "Home");
     }
 

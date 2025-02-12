@@ -72,10 +72,24 @@ else
 }
 
 // Add this BEFORE app.UseHttpsRedirection();
-app.Use((context, next) =>
+app.Use(async (context, next) =>
 {
     context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000";
-    return next();
+
+    //css protection headers
+    context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
+    context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
+    await next();
+});
+
+// Global error handling
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        context.Response.StatusCode = 500;
+        await context.Response.WriteAsync("An unexpected error occurred.");
+    });
 });
 
 app.UseHttpsRedirection();
@@ -89,6 +103,7 @@ app.UseAuthorization();
 app.UseSession();
 app.UseMiddleware<SessionValidationMiddleware>();
 
+app.UseMiddleware<InputValidationMiddleware>();
 
 app.MapControllerRoute(
     name: "default",

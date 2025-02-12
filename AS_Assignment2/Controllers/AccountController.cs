@@ -11,6 +11,7 @@ using AS_Assignment2.ViewModels;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json.Serialization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 public class AccountController : Controller
 {
@@ -50,7 +51,8 @@ public class AccountController : Controller
     [AllowAnonymous]
     public async Task<IActionResult> VerifyEmail(string email)
     {
-        var user = await _userManager.FindByEmailAsync(email);
+        var sanitizedEmail = InputSanitizer.Sanitize(email);
+        var user = await _userManager.FindByEmailAsync(sanitizedEmail);
         if (user != null)
         {
             return Json($"Email {email} is already in use.");
@@ -83,12 +85,12 @@ public class AccountController : Controller
                 {
                     UserName = model.Email,
                     Email = model.Email,
-                    FirstName = model.FirstName,
-                    LastName = model.LastName,
+                    FirstName = System.Net.WebUtility.HtmlEncode(model.FirstName),
+                    LastName = System.Net.WebUtility.HtmlEncode(model.LastName),
+                    BillingAddress = System.Net.WebUtility.HtmlEncode(model.BillingAddress),
+                    ShippingAddress = System.Net.WebUtility.HtmlEncode(model.ShippingAddress),
                     CreditCardNo = encryptedCard,
                     MobileNo = model.MobileNo,
-                    BillingAddress = model.BillingAddress,
-                    ShippingAddress = model.ShippingAddress,
                     PhotoPath = model.Photo != null ? await SavePhoto(model.Photo) : null
                 };
 
@@ -135,6 +137,7 @@ public class AccountController : Controller
         return _encryptionService.Encrypt(creditCardNo); // Use the injected service
     }
 
+
     private async Task<string> SavePhoto(IFormFile photo)
     {
         var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "images", "photos");
@@ -161,6 +164,19 @@ public class AccountController : Controller
         return View(new Login());
     }
 
+    public static class InputSanitizer
+    {
+        private static readonly Regex _sqlInjectionRegex = new Regex(
+            @"(\b(ALTER|CREATE|DELETE|DROP|EXEC(UTE){0,1}|INSERT( +INTO){0,1}|MERGE|SELECT|UPDATE|UNION( +ALL){0,1})\b|;)|(\-\-)|(''?)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        public static string Sanitize(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return input;
+            return _sqlInjectionRegex.Replace(input, match => string.Empty);
+        }
+    }
+
     [HttpPost]
     [AllowAnonymous]
     [ValidateAntiForgeryToken]
@@ -180,7 +196,9 @@ public class AccountController : Controller
 
                 HttpContext.Session.Clear();
 
-                var user = await _userManager.FindByEmailAsync(model.Email);
+                var sanitizedEmail = InputSanitizer.Sanitize(model.Email);
+                var user = await _userManager.FindByEmailAsync(sanitizedEmail);
+
 
                 if (user != null)
                 {
@@ -391,5 +409,84 @@ public class AccountController : Controller
         return Unauthorized();
     }
 
+    [Authorize]
+    [HttpGet]
+    public IActionResult ChangePassword()
+    {
+        return View();
+    }
 
+    [Authorize]
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ChangePassword(ChangePassword model)
+    {
+        if (model == null)
+        {
+            ModelState.AddModelError("", "Invalid request data");
+            return View(new ChangePassword());
+        }
+
+        try
+        {
+            if (!ModelState.IsValid)
+                return View(model);
+
+            var user = await _userManager.GetUserAsync(User);
+            if (user == null)
+                return RedirectToAction("Login");
+
+            // Add null check for password fields
+            if (string.IsNullOrEmpty(model.OldPassword) || string.IsNullOrEmpty(model.NewPassword))
+            {
+                ModelState.AddModelError("", "Password fields cannot be empty");
+                return View(model);
+            }
+
+            // Verify current password
+            var isCurrentPasswordValid = await _userManager.CheckPasswordAsync(user, model.OldPassword);
+            if (!isCurrentPasswordValid)
+            {
+                ModelState.AddModelError("OldPassword", "Current password is incorrect");
+                return View(model);
+            }
+
+            // Check if new password is same as old
+            if (model.OldPassword == model.NewPassword)
+            {
+                ModelState.AddModelError("NewPassword", "New password must be different from current password");
+                return View(model);
+            }
+
+            // Change password
+            var result = await _userManager.ChangePasswordAsync(user, model.OldPassword, model.NewPassword);
+            if (!result.Succeeded)
+            {
+                foreach (var error in result.Errors)
+                    ModelState.AddModelError(string.Empty, error.Description);
+                return View(model);
+            }
+
+            // Audit log
+            _context.AuditLogs.Add(new AuditLog
+            {
+                UserId = user.Id,
+                Action = "Password Changed",
+                Details = "User changed their password"
+            });
+            await _context.SaveChangesAsync();
+
+            // Re-sign in user to refresh authentication cookie
+            await _signInManager.RefreshSignInAsync(user);
+            _logger.LogInformation("User {UserId} changed password successfully", user.Id);
+
+            return RedirectToAction("Index", "Home");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Password change error");
+            ModelState.AddModelError("", "An error occurred while changing password");
+            return View(model);
+        }
+    }
 }
